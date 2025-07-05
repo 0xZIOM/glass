@@ -155,16 +155,18 @@ export class ApiKeyHeader extends LitElement {
 
         .provider-label {
             font-size: 13px;
-            color: #666;
+            color: rgba(255, 255, 255, 0.8);
             margin-bottom: 5px;
         }
 
         .provider-select {
+            width: 100%;
             padding: 10px 12px;
-            border: 1px solid #ddd;
+            border: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 6px;
             font-size: 13px;
-            background: white;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
             outline: none;
             transition: border-color 0.2s ease;
         }
@@ -234,11 +236,11 @@ export class ApiKeyHeader extends LitElement {
         
         .ollama-info {
             padding: 12px;
-            background: #f0f9ff;
-            border: 1px solid #bfdbfe;
+            background: rgba(0, 120, 255, 0.1);
+            border: 1px solid rgba(0, 120, 255, 0.3);
             border-radius: 6px;
             font-size: 12px;
-            color: #1e40af;
+            color: rgba(255, 255, 255, 0.9);
             line-height: 1.4;
         }
 
@@ -510,6 +512,7 @@ export class ApiKeyHeader extends LitElement {
         if (this.selectedProvider === 'ollama') {
             if (!this.selectedOllamaModel) {
                 this.errorMessage = 'Please select an Ollama model';
+                this.requestUpdate();
                 return;
             }
         } else if (!this.apiKey.trim()) {
