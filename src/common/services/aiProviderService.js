@@ -2,17 +2,72 @@ const { createOpenAiGenerativeClient, getOpenAiGenerativeModel } = require('./op
 const { createGeminiClient, getGeminiGenerativeModel, createGeminiChat } = require('./googleGeminiClient.js');
 
 /**
+ * Creates an Ollama client for local AI models
+ * @param {string} baseUrl - The Ollama server URL (default: http://localhost:11434)
+ * @returns {object} The Ollama client
+ */
+function createOllamaClient(baseUrl = 'http://localhost:11434') {
+    return {
+        baseUrl,
+        async generateContent(model, prompt, options = {}) {
+            const response = await fetch(`${baseUrl}/api/generate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: model || 'llama2',
+                    prompt,
+                    stream: false,
+                    ...options
+                }),
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
+            }
+            
+            return await response.json();
+        },
+        
+        async streamGenerate(model, prompt, options = {}) {
+            const response = await fetch(`${baseUrl}/api/generate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: model || 'llama2',
+                    prompt,
+                    stream: true,
+                    ...options
+                }),
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
+            }
+            
+            return response;
+        }
+    };
+}
+
+/**
  * Creates an AI client based on the provider
- * @param {string} apiKey - The API key
- * @param {string} provider - The provider ('openai' or 'gemini')
+ * @param {string} apiKey - The API key (not needed for Ollama)
+ * @param {string} provider - The provider ('openai', 'gemini', or 'ollama')
+ * @param {string} ollamaUrl - The Ollama server URL (optional)
  * @returns {object} The AI client
  */
-function createAIClient(apiKey, provider = 'openai') {
+function createAIClient(apiKey, provider = 'openai', ollamaUrl = 'http://localhost:11434') {
     switch (provider) {
         case 'openai':
             return createOpenAiGenerativeClient(apiKey);
         case 'gemini':
             return createGeminiClient(apiKey);
+        case 'ollama':
+            return createOllamaClient(ollamaUrl);
         default:
             throw new Error(`Unsupported AI provider: ${provider}`);
     }
@@ -21,7 +76,7 @@ function createAIClient(apiKey, provider = 'openai') {
 /**
  * Gets a generative model based on the provider
  * @param {object} client - The AI client
- * @param {string} provider - The provider ('openai' or 'gemini')
+ * @param {string} provider - The provider ('openai', 'gemini', or 'ollama')
  * @param {string} model - The model name (optional)
  * @returns {object} The model object
  */
@@ -31,6 +86,13 @@ function getGenerativeModel(client, provider = 'openai', model) {
             return getOpenAiGenerativeModel(client, model || 'gpt-4.1');
         case 'gemini':
             return getGeminiGenerativeModel(client, model || 'gemini-2.5-flash');
+        case 'ollama':
+            return {
+                generateContent: async (prompt) => {
+                    const result = await client.generateContent(model || 'llama2', prompt);
+                    return { response: { text: () => result.response } };
+                }
+            };
         default:
             throw new Error(`Unsupported AI provider: ${provider}`);
     }
@@ -41,7 +103,7 @@ function getGenerativeModel(client, provider = 'openai', model) {
  * @param {object} params - Request parameters
  * @returns {Promise<object>} The completion response
  */
-async function makeChatCompletion({ apiKey, provider = 'openai', messages, temperature = 0.7, maxTokens = 1024, model, stream = false }) {
+async function makeChatCompletion({ apiKey, provider = 'openai', messages, temperature = 0.7, maxTokens = 1024, model, stream = false, ollamaUrl = 'http://localhost:11434' }) {
     if (provider === 'openai') {
         const fetchUrl = 'https://api.openai.com/v1/chat/completions';
         const response = await fetch(fetchUrl, {
@@ -109,6 +171,47 @@ async function makeChatCompletion({ apiKey, provider = 'openai', messages, tempe
         const result = await genModel.generateContent(parts);
         return {
             content: result.response.text(),
+            raw: result
+        };
+    } else if (provider === 'ollama') {
+        // Convert OpenAI chat format to Ollama format
+        let prompt = '';
+        for (const message of messages) {
+            if (message.role === 'system') {
+                prompt += `System: ${message.content}\n\n`;
+            } else if (message.role === 'user') {
+                const content = typeof message.content === 'string' ? message.content : 
+                    message.content.find(part => part.type === 'text')?.text || '';
+                prompt += `User: ${content}\n\n`;
+            } else if (message.role === 'assistant') {
+                prompt += `Assistant: ${message.content}\n\n`;
+            }
+        }
+        prompt += 'Assistant:';
+
+        const response = await fetch(`${ollamaUrl}/api/generate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: model || 'llama2',
+                prompt,
+                stream: false,
+                options: {
+                    temperature,
+                    num_predict: maxTokens
+                }
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        return {
+            content: result.response?.trim() || '',
             raw: result
         };
     } else {
@@ -300,6 +403,104 @@ async function makeStreamingChatCompletion({ apiKey, provider = 'openai', messag
                     console.log('[AIProviderService] Gemini streaming completed successfully');
                 } catch (error) {
                     console.error('[AIProviderService] Gemini streaming error:', error);
+                    controller.error(error);
+                }
+            }
+        });
+        
+        // Create a Response object with the stream
+        return new Response(stream, {
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            }
+        });
+    } else if (provider === 'ollama') {
+        console.log('[AIProviderService] Starting Ollama streaming request');
+        const client = createOllamaClient();
+        
+        // Extract system instruction if present
+        let systemInstruction = '';
+        const nonSystemMessages = [];
+        
+        for (const msg of messages) {
+            if (msg.role === 'system') {
+                systemInstruction = msg.content;
+            } else {
+                nonSystemMessages.push(msg);
+            }
+        }
+        
+        // Create a prompt for Ollama
+        const promptParts = [];
+        for (const message of nonSystemMessages) {
+            if (message.role === 'system') {
+                promptParts.push(`System: ${message.content}`);
+            } else if (message.role === 'user') {
+                if (typeof message.content === 'string') {
+                    promptParts.push(`User: ${message.content}`);
+                } else if (Array.isArray(message.content)) {
+                    // Handle multimodal content
+                    for (const part of message.content) {
+                        if (part.type === 'text') {
+                            promptParts.push(`User: ${part.text}`);
+                        } else if (part.type === 'image_url' && part.image_url?.url) {
+                            // Extract base64 data from data URL
+                            const base64Match = part.image_url.url.match(/^data:(.+);base64,(.+)$/);
+                            if (base64Match) {
+                                promptParts.push(`User sent an image`);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        const prompt = promptParts.join('\n');
+        console.log('[AIProviderService] Sending prompt to Ollama:', prompt);
+        
+        // Stream the response from Ollama
+        const response = await client.streamGenerate(model || 'llama2', prompt);
+        
+        // Create a ReadableStream to handle Ollama's streaming
+        const stream = new ReadableStream({
+            async start(controller) {
+                try {
+                    console.log('[AIProviderService] Streaming response from Ollama');
+                    
+                    // Ollama streams in chunks
+                    let totalContent = '';
+                    response.body
+                        .pipeThrough(new TextDecoderStream())
+                        .pipeTo(new WritableStream({
+                            write(chunk) {
+                                console.log('[AIProviderService] Received chunk:', chunk);
+                                totalContent += chunk;
+                                
+                                // Format as SSE data
+                                const data = JSON.stringify({
+                                    choices: [{
+                                        delta: {
+                                            content: chunk
+                                        }
+                                    }]
+                                });
+                                controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`));
+                            },
+                            close() {
+                                console.log('[AIProviderService] Ollama streaming completed');
+                                // Send the final done message
+                                controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+                                controller.close();
+                            },
+                            abort(err) {
+                                console.error('[AIProviderService] Ollama streaming error:', err);
+                                controller.error(err);
+                            }
+                        }));
+                } catch (error) {
+                    console.error('[AIProviderService] Ollama streaming error:', error);
                     controller.error(error);
                 }
             }

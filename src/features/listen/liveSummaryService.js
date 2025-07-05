@@ -42,6 +42,18 @@ async function getAiProvider() {
     }
 }
 
+async function getAiModel() {
+    try {
+        const { ipcRenderer } = require('electron');
+        const model = await ipcRenderer.invoke('get-ai-model');
+        return model;
+    } catch (error) {
+        // If we're in the main process, get it directly
+        const { getStoredModel } = require('../../electron/windowManager.js');
+        return getStoredModel ? getStoredModel() : null;
+    }
+}
+
 let currentSessionId = null;
 let conversationHistory = [];
 let isInitializingSession = false;
@@ -226,8 +238,18 @@ Keep all points concise and build upon previous analysis if provided.`,
         const provider = getStoredProvider ? getStoredProvider() : 'openai';
         const loggedIn = isFirebaseLoggedIn(); // true ➜ vKey, false ➜ apiKey
         const usePortkey = loggedIn && provider === 'openai'; // Only use Portkey for OpenAI with Firebase
+        const aiModel = await getAiModel(); // Get the stored model (for Ollama)
         
-        console.log(`[LiveSummary] provider: ${provider}, usePortkey: ${usePortkey}`);
+        console.log(`[LiveSummary] provider: ${provider}, usePortkey: ${usePortkey}, model: ${aiModel}`);
+
+        let modelToUse;
+        if (provider === 'openai') {
+            modelToUse = 'gpt-4.1';
+        } else if (provider === 'gemini') {
+            modelToUse = 'gemini-2.5-flash';
+        } else if (provider === 'ollama') {
+            modelToUse = aiModel || 'llama2'; // Use stored model or default
+        }
 
         const completion = await makeChatCompletionWithPortkey({
             apiKey: API_KEY,
@@ -235,7 +257,7 @@ Keep all points concise and build upon previous analysis if provided.`,
             messages: messages,
             temperature: 0.7,
             maxTokens: 1024,
-            model: provider === 'openai' ? 'gpt-4.1' : 'gemini-2.5-flash',
+            model: modelToUse,
             usePortkey: usePortkey,
             portkeyVirtualKey: usePortkey ? API_KEY : null
         });

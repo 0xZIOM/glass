@@ -1940,15 +1940,23 @@ function setupIpcHandlers(openaiSessionRef) {
 
 let storedApiKey = null;
 let storedProvider = 'openai';
+let storedModel = null;
 
-async function setApiKey(apiKey, provider = 'openai') {
+async function setApiKey(apiKey, provider = 'openai', model = null) {
     storedApiKey = apiKey;
     storedProvider = provider;
-    console.log('[WindowManager] API key and provider stored (and will be persisted to DB)');
+    storedModel = model;
+    console.log('[WindowManager] API key, provider, and model stored (and will be persisted to DB)');
 
     try {
         await sqliteClient.saveApiKey(apiKey, sqliteClient.defaultUserId, provider);
         console.log('[WindowManager] API key and provider saved to SQLite');
+        
+        // Store model separately if it exists
+        if (model && provider === 'ollama') {
+            // You might want to add a method to store the model in SQLite as well
+            console.log('[WindowManager] Ollama model stored:', model);
+        }
     } catch (err) {
         console.error('[WindowManager] Failed to save API key to SQLite:', err);
     }
@@ -1958,9 +1966,11 @@ async function setApiKey(apiKey, provider = 'openai') {
             const js = apiKey ? `
                 localStorage.setItem('openai_api_key', ${JSON.stringify(apiKey)});
                 localStorage.setItem('ai_provider', ${JSON.stringify(provider)});
+                ${model ? `localStorage.setItem('ai_model', ${JSON.stringify(model)});` : 'localStorage.removeItem("ai_model");'}
             ` : `
                 localStorage.removeItem('openai_api_key');
                 localStorage.removeItem('ai_provider');
+                localStorage.removeItem('ai_model');
             `;
             win.webContents.executeJavaScript(js).catch(() => {});
         }
@@ -2004,6 +2014,10 @@ function getStoredProvider() {
     return storedProvider || 'openai';
 }
 
+function getStoredModel() {
+    return storedModel;
+}
+
 function setupApiKeyIPC() {
     const { ipcMain } = require('electron');
 
@@ -2023,12 +2037,13 @@ function setupApiKeyIPC() {
         // Support both old format (string) and new format (object)
         const apiKey = typeof data === 'string' ? data : data.apiKey;
         const provider = typeof data === 'string' ? 'openai' : (data.provider || 'openai');
+        const model = data.model || null; // Store selected model for Ollama
         
-        await setApiKey(apiKey, provider);
+        await setApiKey(apiKey, provider, model);
 
         windowPool.forEach((win, name) => {
             if (win && !win.isDestroyed()) {
-                win.webContents.send('api-key-validated', { apiKey, provider });
+                win.webContents.send('api-key-validated', { apiKey, provider, model });
             }
         });
 
@@ -2067,6 +2082,11 @@ function setupApiKeyIPC() {
     ipcMain.handle('get-ai-provider', async () => {
         console.log('[WindowManager] AI provider requested from renderer');
         return storedProvider || 'openai';
+    });
+
+    ipcMain.handle('get-ai-model', async () => {
+        console.log('[WindowManager] AI model requested from renderer');
+        return storedModel;
     });
 
     console.log('[WindowManager] API key related IPC handlers registered (SQLite-backed)');
@@ -2521,6 +2541,7 @@ module.exports = {
     setApiKey,
     getStoredApiKey,
     getStoredProvider,
+    getStoredModel,
     clearApiKey,
     getCurrentFirebaseUser,
     isFirebaseLoggedIn,

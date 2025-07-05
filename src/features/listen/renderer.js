@@ -1000,9 +1000,19 @@ async function sendMessage(userPrompt, options = {}) {
 
         const { isLoggedIn } = await queryLoginState();
         const provider = await ipcRenderer.invoke('get-ai-provider');
+        const aiModel = await ipcRenderer.invoke('get-ai-model');
         const usePortkey = isLoggedIn && provider === 'openai';
 
-        console.log(`🚀 Sending request to ${provider} AI...`);
+        console.log(`🚀 Sending request to ${provider} AI with model: ${aiModel || 'default'}...`);
+        
+        let modelToUse;
+        if (provider === 'openai') {
+            modelToUse = 'gpt-4.1';
+        } else if (provider === 'gemini') {
+            modelToUse = 'gemini-2.5-flash';
+        } else if (provider === 'ollama') {
+            modelToUse = aiModel || 'llama2';
+        }
         
         const response = await makeStreamingChatCompletionWithPortkey({
             apiKey: API_KEY,
@@ -1010,7 +1020,7 @@ async function sendMessage(userPrompt, options = {}) {
             messages: messages,
             temperature: 0.7,
             maxTokens: 2048,
-            model: provider === 'openai' ? 'gpt-4.1' : 'gemini-2.5-flash',
+            model: modelToUse,
             usePortkey: usePortkey,
             portkeyVirtualKey: usePortkey ? API_KEY : null
         });

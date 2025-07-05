@@ -6,6 +6,9 @@ export class ApiKeyHeader extends LitElement {
         isLoading: { type: Boolean },
         errorMessage: { type: String },
         selectedProvider: { type: String },
+        ollamaModels: { type: Array },
+        selectedOllamaModel: { type: String },
+        isLoadingModels: { type: Boolean },
     };
 
     static styles = css`
@@ -115,18 +118,15 @@ export class ApiKeyHeader extends LitElement {
         .form-content {
             display: flex;
             flex-direction: column;
-            align-items: center;
-            width: 100%;
-            margin-top: auto;
+            gap: 15px;
         }
 
         .error-message {
-            color: rgba(239, 68, 68, 0.9);
-            font-weight: 500;
-            font-size: 11px;
-            height: 14px;
+            color: #ff6b6b;
+            font-size: 12px;
             text-align: center;
-            margin-bottom: 4px;
+            min-height: 16px;
+            transition: opacity 0.2s ease;
         }
 
         .api-input {
@@ -153,27 +153,20 @@ export class ApiKeyHeader extends LitElement {
             outline: none;
         }
 
+        .provider-label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
         .provider-select {
-            width: 100%;
-            height: 34px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            padding: 0 10px;
-            color: white;
-            font-size: 12px;
-            font-weight: 400;
-            margin-bottom: 6px;
-            text-align: center;
-            cursor: pointer;
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2714%27%20height%3D%278%27%20viewBox%3D%270%200%2014%208%27%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%3E%3Cpath%20d%3D%27M1%201l6%206%206-6%27%20stroke%3D%27%23ffffff%27%20stroke-width%3D%271.5%27%20fill%3D%27none%27%20fill-rule%3D%27evenodd%27/%3E%3C/svg%3E');
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            background-size: 12px;
-            padding-right: 30px;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            background: white;
+            outline: none;
+            transition: border-color 0.2s ease;
         }
 
         .provider-select:hover {
@@ -182,9 +175,8 @@ export class ApiKeyHeader extends LitElement {
         }
 
         .provider-select:focus {
-            outline: none;
-            background-color: rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.4);
+            border-color: #007AFF;
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
         }
 
         .provider-select option {
@@ -240,13 +232,75 @@ export class ApiKeyHeader extends LitElement {
             margin: 10px 0;
         }
         
-        .provider-label {
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 11px;
-            font-weight: 400;
-            margin-bottom: 4px;
+        .ollama-info {
+            padding: 12px;
+            background: #f0f9ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #1e40af;
+            line-height: 1.4;
+        }
+
+        .ollama-info p {
+            margin: 0 0 8px 0;
+        }
+
+        .ollama-info p:last-child {
+            margin-bottom: 0;
+        }
+
+        .model-select-container {
+            margin-top: 10px;
+        }
+
+        .model-label {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .model-select {
             width: 100%;
-            text-align: left;
+            padding: 10px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            font-size: 13px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .model-select:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .model-select:focus {
+            border-color: #007AFF;
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+        }
+
+        .model-select option {
+            background: #1a1a1a;
+            color: white;
+            padding: 5px;
+        }
+
+        .model-loading {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            text-align: center;
+            padding: 10px;
+        }
+
+        .model-error {
+            font-size: 12px;
+            color: #ff6b6b;
+            text-align: center;
+            padding: 10px;
         }
     `;
 
@@ -259,6 +313,9 @@ export class ApiKeyHeader extends LitElement {
         this.errorMessage = '';
         this.validatedApiKey = null;
         this.selectedProvider = 'openai';
+        this.ollamaModels = [];
+        this.selectedOllamaModel = '';
+        this.isLoadingModels = false;
 
         this.handleMouseMove = this.handleMouseMove.bind(this);
         this.handleMouseUp = this.handleMouseUp.bind(this);
@@ -268,6 +325,7 @@ export class ApiKeyHeader extends LitElement {
         this.handleAnimationEnd = this.handleAnimationEnd.bind(this);
         this.handleUsePicklesKey = this.handleUsePicklesKey.bind(this);
         this.handleProviderChange = this.handleProviderChange.bind(this);
+        this.handleModelChange = this.handleModelChange.bind(this);
         this.checkAndRequestPermissions = this.checkAndRequestPermissions.bind(this);
     }
 
@@ -277,6 +335,9 @@ export class ApiKeyHeader extends LitElement {
         this.errorMessage = '';
         this.validatedApiKey = null;
         this.selectedProvider = 'openai';
+        this.ollamaModels = [];
+        this.selectedOllamaModel = '';
+        this.isLoadingModels = false;
         this.requestUpdate();
     }
 
@@ -353,7 +414,57 @@ export class ApiKeyHeader extends LitElement {
         this.selectedProvider = e.target.value;
         this.errorMessage = '';
         console.log('Provider changed to:', this.selectedProvider);
+        
+        // Clear API key when switching to Ollama since it doesn't need one
+        if (this.selectedProvider === 'ollama') {
+            this.apiKey = 'ollama-local'; // Placeholder value for Ollama
+            this.loadOllamaModels();
+        } else if (this.apiKey === 'ollama-local') {
+            this.apiKey = '';
+            this.ollamaModels = [];
+            this.selectedOllamaModel = '';
+        }
+        
         this.requestUpdate();
+    }
+
+    handleModelChange(e) {
+        this.selectedOllamaModel = e.target.value;
+        console.log('Ollama model changed to:', this.selectedOllamaModel);
+        this.requestUpdate();
+    }
+
+    async loadOllamaModels() {
+        this.isLoadingModels = true;
+        this.ollamaModels = [];
+        this.selectedOllamaModel = '';
+        this.requestUpdate();
+
+        try {
+            console.log('Loading Ollama models...');
+            const response = await fetch('http://localhost:11434/api/tags');
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.ollamaModels = data.models || [];
+                
+                // Auto-select the first model if available
+                if (this.ollamaModels.length > 0) {
+                    this.selectedOllamaModel = this.ollamaModels[0].name;
+                }
+                
+                console.log('Loaded Ollama models:', this.ollamaModels.map(m => m.name));
+            } else {
+                console.error('Failed to load Ollama models:', response.status);
+                this.ollamaModels = [];
+            }
+        } catch (error) {
+            console.error('Error loading Ollama models:', error);
+            this.ollamaModels = [];
+        } finally {
+            this.isLoadingModels = false;
+            this.requestUpdate();
+        }
     }
 
     handlePaste(e) {
@@ -387,16 +498,26 @@ export class ApiKeyHeader extends LitElement {
     }
 
     async handleSubmit() {
-        if (this.wasJustDragged || this.isLoading || !this.apiKey.trim()) {
+        if (this.wasJustDragged || this.isLoading) {
             console.log('Submit blocked:', {
                 wasJustDragged: this.wasJustDragged,
                 isLoading: this.isLoading,
-                hasApiKey: !!this.apiKey.trim(),
             });
             return;
         }
 
-        console.log('Starting API key validation...');
+        // For Ollama, check if model is selected
+        if (this.selectedProvider === 'ollama') {
+            if (!this.selectedOllamaModel) {
+                this.errorMessage = 'Please select an Ollama model';
+                return;
+            }
+        } else if (!this.apiKey.trim()) {
+            console.log('Submit blocked: no API key');
+            return;
+        }
+
+        console.log('Starting validation...');
         this.isLoading = true;
         this.errorMessage = '';
         this.requestUpdate();
@@ -413,15 +534,20 @@ export class ApiKeyHeader extends LitElement {
                 if (permissionResult.success) {
                     console.log('All permissions granted – starting slide-out animation');
                     this.startSlideOutAnimation();
-                    this.validatedApiKey = this.apiKey.trim();
+                    this.validatedApiKey = this.selectedProvider === 'ollama' ? 'ollama-local' : this.apiKey.trim();
                     this.validatedProvider = this.selectedProvider;
+                    this.validatedModel = this.selectedProvider === 'ollama' ? this.selectedOllamaModel : null;
                 } else {
                     this.errorMessage = permissionResult.error || 'Permission setup required';
                     console.log('Permission setup incomplete:', permissionResult);
                 }
             } else {
-                this.errorMessage = 'Invalid API key - please check and try again';
-                console.log('API key validation failed');
+                if (this.selectedProvider === 'ollama') {
+                    this.errorMessage = 'Unable to connect to Ollama - is it running on port 11434?';
+                } else {
+                    this.errorMessage = 'Invalid API key - please check and try again';
+                }
+                console.log('Validation failed for provider:', this.selectedProvider);
             }
         } catch (error) {
             console.error('API key validation error:', error);
@@ -433,6 +559,26 @@ export class ApiKeyHeader extends LitElement {
     }
 
     async validateApiKey(apiKey, provider = 'openai') {
+        if (provider === 'ollama') {
+            // For Ollama, check if the service is running on port 11434
+            try {
+                console.log('Validating Ollama connection...');
+                const response = await fetch('http://localhost:11434/api/tags');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Ollama validation successful, available models:', data.models?.length || 0);
+                    return true;
+                } else {
+                    console.log('Ollama validation failed:', response.status);
+                    return false;
+                }
+            } catch (error) {
+                console.error('Ollama validation network error:', error);
+                return false;
+            }
+        }
+        
         if (!apiKey || apiKey.length < 15) return false;
         
         if (provider === 'openai') {
@@ -566,13 +712,21 @@ export class ApiKeyHeader extends LitElement {
 
             if (this.validatedApiKey) {
                 if (window.require) {
-                    window.require('electron').ipcRenderer.invoke('api-key-validated', {
+                    const payload = {
                         apiKey: this.validatedApiKey,
                         provider: this.validatedProvider || 'openai'
-                    });
+                    };
+                    
+                    // Add model info for Ollama
+                    if (this.validatedProvider === 'ollama' && this.validatedModel) {
+                        payload.model = this.validatedModel;
+                    }
+                    
+                    window.require('electron').ipcRenderer.invoke('api-key-validated', payload);
                 }
                 this.validatedApiKey = null;
                 this.validatedProvider = null;
+                this.validatedModel = null;
             }
         }
     }
@@ -589,8 +743,22 @@ export class ApiKeyHeader extends LitElement {
 
     }
 
+    getPlaceholderText() {
+        switch (this.selectedProvider) {
+            case 'openai':
+                return "Enter your OpenAI API key";
+            case 'gemini':
+                return "Enter your Gemini API key";
+            case 'ollama':
+                return "No API key needed for Ollama";
+            default:
+                return "Enter your API key";
+        }
+    }
+
     render() {
-        const isButtonDisabled = this.isLoading || !this.apiKey || !this.apiKey.trim();
+        const isButtonDisabled = this.isLoading || 
+            (this.selectedProvider === 'ollama' ? !this.selectedOllamaModel : (!this.apiKey || !this.apiKey.trim()));
         console.log('Rendering with provider:', this.selectedProvider);
 
         return html`
@@ -614,21 +782,52 @@ export class ApiKeyHeader extends LitElement {
                     >
                         <option value="openai" ?selected=${this.selectedProvider === 'openai'}>OpenAI</option>
                         <option value="gemini" ?selected=${this.selectedProvider === 'gemini'}>Google Gemini</option>
+                        <option value="ollama" ?selected=${this.selectedProvider === 'ollama'}>Ollama (Local)</option>
                     </select>
                     <input
                         type="password"
                         class="api-input"
-                        placeholder=${this.selectedProvider === 'openai' ? "Enter your OpenAI API key" : "Enter your Gemini API key"}
+                        placeholder=${this.getPlaceholderText()}
                         .value=${this.apiKey || ''}
                         @input=${this.handleInput}
                         @keypress=${this.handleKeyPress}
                         @paste=${this.handlePaste}
                         @focus=${() => (this.errorMessage = '')}
-                        ?disabled=${this.isLoading}
+                        ?disabled=${this.isLoading || this.selectedProvider === 'ollama'}
+                        ?hidden=${this.selectedProvider === 'ollama'}
                         autocomplete="off"
                         spellcheck="false"
                         tabindex="0"
                     />
+                    ${this.selectedProvider === 'ollama' ? html`
+                        <div class="ollama-info">
+                            <p>Ollama runs locally on your machine. Make sure Ollama is installed and running on port 11434.</p>
+                            <p>No API key required for local models.</p>
+                        </div>
+                        <div class="model-select-container">
+                            <label class="model-label">Select Model:</label>
+                            ${this.isLoadingModels ? html`
+                                <div class="model-loading">Loading models...</div>
+                            ` : this.ollamaModels.length === 0 ? html`
+                                <div class="model-error">No models found. Run 'ollama pull <model>' to download models.</div>
+                            ` : html`
+                                <select
+                                    class="model-select"
+                                    .value=${this.selectedOllamaModel || ''}
+                                    @change=${this.handleModelChange}
+                                    ?disabled=${this.isLoading}
+                                    tabindex="0"
+                                >
+                                    <option value="">Select a model...</option>
+                                    ${this.ollamaModels.map(model => html`
+                                        <option value="${model.name}" ?selected=${this.selectedOllamaModel === model.name}>
+                                            ${model.name}
+                                        </option>
+                                    `)}
+                                </select>
+                            `}
+                        </div>
+                    ` : ''}
 
                     <button class="action-button" @click=${this.handleSubmit} ?disabled=${isButtonDisabled} tabindex="0">
                         ${this.isLoading ? 'Validating...' : 'Confirm'}
